@@ -1,5 +1,6 @@
 ﻿using AForge.Video;
 using AForge.Video.DirectShow;
+using HotelClassLibrary;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -20,101 +21,70 @@ namespace ScannerTest
         private IVideoSource videoSource;
         int frameCount;
         static HttpClient client = new HttpClient();
+        Hotel selectedHotel;
        
         public Form1()
         {
             InitializeComponent();
+            scannerControlPanel.BorderStyle = BorderStyle.FixedSingle;
+            BtnScanQRCode.Enabled = false;
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            VideoCaptureDeviceForm form = new VideoCaptureDeviceForm();
-            if (form.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-            {
-                videoSource = form.VideoDevice;
-                videoSource.NewFrame += new NewFrameEventHandler(video_NewFrame);
-                videoSource.Start();
-            }
-            this.Size = pictureBox1.Size;
-            frameCount = 0;
-        }
-
-        private void video_NewFrame(object sender, NewFrameEventArgs eventArgs)
-        {
-            Bitmap bitmap = (Bitmap)eventArgs.Frame.Clone();
-            pictureBox1.Image = bitmap;
-            frameCount++;
-            if (frameCount == 60)
-            {
-                Bitmap b = (Bitmap)bitmap.Clone();
-                var t = Task.Run(() => CheckForQRCode(b));
-            }
-        }
-
-        private async void CheckForQRCode(Bitmap image)
-        {
-            LuminanceSource source;
-            source = new BitmapLuminanceSource(image);
-            BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
-            Result result = new MultiFormatReader().decode(bitmap);
-
-            if (result != null) //Code Found
-            {
-                var QRCodeString = result.ToString();
-                bool codevalid = await CheckQRString(QRCodeString);
-                if(codevalid)
-                {
-                    StopVideo();
-                    pictureBox1.Image = null;
-                    pictureBox1.BackColor = Color.Green;
-                }
-
-            }
-            else    //No Code
-            {
-                //MessageBox.Show("fuck off: ");
-            }
             
-            frameCount = 0;
-        }
-
-        private void StopVideo()
-        {
-            videoSource.SignalToStop();
-            if (videoSource != null && videoSource.IsRunning && pictureBox1.Image != null)
-            {
-                pictureBox1.Image.Dispose();
-            }
         }
 
         private void Form1_Closing(object sender, FormClosingEventArgs e)
         {
-            StopVideo();
+            
         }
 
-        static async Task<bool> CheckQRString(string QRString)
+        private async void BtnFindHotel_Click(object sender, EventArgs e)
         {
-            string checkAPIURL = "http://192.168.0.24:45455/api/Booking/CheckQR/{0}";
-            checkAPIURL = string.Format(checkAPIURL, QRString);
-            bool Accepted = false;
-            try
+
+            scannerControlPanel.Controls.Clear();
+            selectedHotel = await HotelRestService.Instance.getRoomsForHotel(
+                Convert.ToInt32(hotelNoBox.Text));
+            foreach (Room r in selectedHotel.RoomsInHotel)
             {
-                var response = await client.GetAsync(checkAPIURL);
-                if (response.IsSuccessStatusCode)
+                Scanner s = new Scanner
                 {
-                    var content = await response.Content.ReadAsStringAsync();
-                    if (content.Contains("success"))
-                        return true;
-                    else
-                        return false;
-                            
+                    roomName = r.RoomNumber.ToString()
+                };
+                if (!r.IsAvailable)
+                    s.IsAvailable = false;
+                scannerControlPanel.Controls.Add(s);
+            }
+            BtnScanQRCode.Enabled = true;
+
+        }
+
+        private void BtnScanQRCode_Click(object sender, EventArgs e)
+        {
+            using (var form = new ScannerPage())
+            {
+                form.ShowDialog();
+                int roomID = form.FoundRoom;
+                scannerControlPanel.Controls.Clear();
+                foreach (Room r in selectedHotel.RoomsInHotel)
+                {
+                    Scanner s = new Scanner
+                    {
+                        roomName = r.RoomNumber.ToString()
+                    };
+
+                    if (!r.IsAvailable)
+                        s.IsAvailable = false;
+
+                    if (r.RoomID == roomID)
+                        s.IsScanned = true;
+
+
+                    scannerControlPanel.Controls.Add(s);
                 }
             }
-            catch (Exception e)
-            {
-                
-            }
-            return false;
         }
+
     }
 }
